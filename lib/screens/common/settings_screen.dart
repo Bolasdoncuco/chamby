@@ -1,15 +1,63 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/api_service.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  Map<String, dynamic>? _profileData;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    final authProvider = context.read<AuthProvider>();
+    final isEmployer = authProvider.userRole == UserRole.employer;
+    final endpoint = isEmployer ? '/employers/profile' : '/candidates/profile';
+
+    try {
+      final response = await ApiService.get(endpoint);
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (mounted) {
+          setState(() {
+            _profileData = data['profile'];
+            _isLoading = false;
+          });
+        }
+      } else {
+        if (mounted) setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final authProvider = context.watch<AuthProvider>();
     final isEmployer = authProvider.userRole == UserRole.employer;
+
+    String displayName = '';
+    if (_profileData != null) {
+      if (isEmployer) {
+        displayName = _profileData!['companyName'] ?? 'Empresa';
+      } else {
+        displayName = '${_profileData!['firstName'] ?? ''} ${_profileData!['lastName'] ?? ''}'.trim();
+      }
+    }
 
     return Container(
       color: Colors.grey[50], // slate-50
@@ -42,36 +90,50 @@ class SettingsScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // User Profile Mini Card
-                  Container(
-                    margin: const EdgeInsets.only(bottom: 32),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: Colors.grey[100]!),
-                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 4, offset: const Offset(0, 2))],
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 64, height: 64,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFDBEAFE), // blue-100
-                            borderRadius: BorderRadius.circular(16),
+                  if (_isLoading)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 32),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(color: Colors.grey[100]!),
+                      ),
+                      child: const Center(child: CircularProgressIndicator()),
+                    )
+                  else
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 32),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(24),
+                        border: Border.all(color: Colors.grey[100]!),
+                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 4, offset: const Offset(0, 2))],
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 64, height: 64,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFDBEAFE), // blue-100
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: Icon(isEmployer ? LucideIcons.building : LucideIcons.user, color: const Color(0xFF2563EB), size: 32),
                           ),
-                          child: Icon(isEmployer ? LucideIcons.briefcase : LucideIcons.user, color: const Color(0xFF2563EB), size: 32),
-                        ),
-                        const SizedBox(width: 16),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('Alex Chamby', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF0F172A))),
-                            Text(isEmployer ? 'Empresa Verificada' : 'Candidato Premium', style: TextStyle(fontSize: 12, color: Colors.grey[500])),
-                          ],
-                        )
-                      ],
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(displayName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: Color(0xFF0F172A))),
+                                Text(isEmployer ? 'Empresa Registrada' : 'Perfil de Candidato', style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+                              ],
+                            ),
+                          )
+                        ],
+                      ),
                     ),
-                  ),
 
                   // Sections
                   _SettingsSection(

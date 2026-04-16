@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_card_swiper/flutter_card_swiper.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
+import 'dart:convert';
 import '../../providers/auth_provider.dart';
+import '../../services/api_service.dart';
 
 final List<Map<String, dynamic>> mockCandidates = [
   {
@@ -14,7 +16,8 @@ final List<Map<String, dynamic>> mockCandidates = [
     'availability': 'Tiempo completo',
     'tags': ['Dinámico', 'Arte Latte', 'Sistemas POS'],
     'videoPlaceholder': 'https://picsum.photos/seed/alex/400/600',
-    'bio': 'Barista energético buscando un ambiente de café concurrido. ¡Prospero bajo presión!'
+    'bio': 'Barista energético buscando un ambiente de café concurrido. ¡Prospero bajo presión!',
+    'suggestedJob': 'Barista Principal',
   },
   {
     'id': 2,
@@ -25,7 +28,8 @@ final List<Map<String, dynamic>> mockCandidates = [
     'availability': 'Medio tiempo',
     'tags': ['Servicio al Cliente', 'Visual Merchandising', 'Bilingüe'],
     'videoPlaceholder': 'https://picsum.photos/seed/sarah/400/600',
-    'bio': 'Asesora de ventas amable y accesible con facilidad para las ventas.'
+    'bio': 'Asesora de ventas amable y accesible con facilidad para las ventas.',
+    'suggestedJob': 'Vendedor de Tienda',
   },
   {
     'id': 3,
@@ -36,7 +40,8 @@ final List<Map<String, dynamic>> mockCandidates = [
     'availability': 'Flexible',
     'tags': ['Trabajo en Equipo', 'Alto Volumen', 'Seguridad Alimentaria'],
     'videoPlaceholder': 'https://picsum.photos/seed/mike/400/600',
-    'bio': 'Rápido y siempre sonriente. Listo para unirme a un equipo dinámico.'
+    'bio': 'Rápido y siempre sonriente. Listo para unirme a un equipo dinámico.',
+    'suggestedJob': 'Ayudante de Cocina',
   }
 ];
 
@@ -86,6 +91,7 @@ class SwipeFeedScreen extends StatefulWidget {
 class _SwipeFeedScreenState extends State<SwipeFeedScreen> {
   final CardSwiperController controller = CardSwiperController();
   List<Map<String, dynamic>> _cards = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
@@ -96,21 +102,83 @@ class _SwipeFeedScreenState extends State<SwipeFeedScreen> {
     });
   }
 
-  void _initCards() {
+  void _initCards() async {
     final authProvider = context.read<AuthProvider>();
-    setState(() {
-      _cards = List.from(authProvider.userRole == UserRole.employer ? mockCandidates : mockJobs);
-    });
+    final isEmployer = authProvider.userRole == UserRole.employer;
+    
+    try {
+      final endpoint = isEmployer 
+        ? '/employers/feed/${authProvider.selectedVacancy?['id']}' // If employer, needs a vacancyId
+        : '/candidates/feed';
+      
+      final response = await ApiService.get(endpoint);
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _cards = List<Map<String, dynamic>>.from(data['feed']);
+          _isLoading = false;
+        });
+      } else {
+        if (mounted) setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error cargando feed: $e')),
+        );
+      }
+    }
   }
 
   bool _onSwipe(int previousIndex, int? currentIndex, CardSwiperDirection direction) {
-    if (direction == CardSwiperDirection.right) {
-       final swipedUser = _cards[previousIndex];
-       Future.delayed(const Duration(milliseconds: 300), () {
-          if (mounted) {
-            context.read<AuthProvider>().setMatchedUser(swipedUser);
+    if (direction == CardSwiperDirection.right || direction == CardSwiperDirection.left) {
+       final item = _cards[previousIndex];
+       final authProvider = context.read<AuthProvider>();
+       final isEmployer = authProvider.userRole == UserRole.employer;
+       final isLike = direction == CardSwiperDirection.right;
+
+       // Send to backend
+       final endpoint = isEmployer ? '/employers/swipe' : '/candidates/swipe';
+       ApiService.post(endpoint, {
+         if (isEmployer) 'candidateId': item['id'],
+         if (isEmployer) 'vacancyId': authProvider.selectedVacancy?['id'],
+         if (!isEmployer) 'vacancyId': item['id'],
+         'isLike': isLike,
+       }).then((response) {
+          if (response.statusCode == 200) {
+            final data = jsonDecode(response.body);
+            if (data['isMatch'] == true) {
+              // Show Match if candidate
+              if (!isEmployer) {
+                authProvider.setMatchedUser(item);
+              }
+            }
           }
        });
+
+       if (isEmployer && isLike) {
+         ScaffoldMessenger.of(context).showSnackBar(
+           SnackBar(
+             content: Row(
+               children: [
+                 const Icon(LucideIcons.checkCircle2, color: Colors.white),
+                 const SizedBox(width: 12),
+                 const Expanded(child: Text('¡Candidato seleccionado! Le avisaremos si hay Match mutuo.', style: TextStyle(fontWeight: FontWeight.bold))),
+               ],
+             ),
+             backgroundColor: const Color(0xFF2563EB), // blue-600
+             behavior: SnackBarBehavior.floating,
+             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+             margin: EdgeInsets.only(
+               bottom: MediaQuery.of(context).size.height - 160,
+               left: 16,
+               right: 16,
+             ),
+             duration: const Duration(seconds: 2),
+           ),
+         );
+       }
     }
     return true;
   }
@@ -123,7 +191,8 @@ class _SwipeFeedScreenState extends State<SwipeFeedScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_cards.isEmpty) return const Center(child: CircularProgressIndicator());
+    if (_isLoading) return const Center(child: CircularProgressIndicator());
+    if (_cards.isEmpty) return const Center(child: Text('No hay candidatos/vacantes disponibles en este momento.', style: TextStyle(color: Colors.grey, fontSize: 16), textAlign: TextAlign.center));
 
     final authProvider = context.watch<AuthProvider>();
     final isEmployer = authProvider.userRole == UserRole.employer;
@@ -182,11 +251,23 @@ class _CardView extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                Image.network(
-                  item['videoPlaceholder'],
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey[300]),
-                ),
+                item['photoData'] != null 
+                  ? (item['photoData'].toString().startsWith('http')
+                      ? Image.network(
+                          item['photoData'],
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey[300]),
+                        )
+                      : Image.memory(
+                          base64Decode(item['photoData'].toString().replaceAll(RegExp(r'data:image/[^;]+;base64,'), '')),
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey[300]),
+                        ))
+                  : Image.network(
+                      item['videoPlaceholder'] ?? 'https://picsum.photos/400/600',
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey[300]),
+                    ),
                 Container(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
@@ -214,6 +295,25 @@ class _CardView extends StatelessWidget {
                         ],
                       ),
                       Text(item['role'], style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue[100])),
+                      if (isEmployer && item['suggestedJob'] != null) ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF2563EB).withOpacity(0.9), // blue-600
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.white.withOpacity(0.2)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(LucideIcons.sparkles, color: Colors.yellow, size: 14),
+                              const SizedBox(width: 4),
+                              Text('Opción Ideal: ${item['suggestedJob']}', style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -248,13 +348,13 @@ class _CardView extends StatelessWidget {
                   // Tags
                    Wrap(
                     spacing: 8, runSpacing: 8,
-                    children: (item['tags'] as List).map((tag) => Container(
+                    children: ((item['tags'] ?? item['skills'] ?? []) as List).map((tag) => Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                       decoration: BoxDecoration(
                         color: const Color(0xFFEFF6FF), // blue-50
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: Text(tag, style: const TextStyle(color: Color(0xFF1D4ED8), fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.5)), // blue-700
+                      child: Text(tag.toString(), style: const TextStyle(color: Color(0xFF1D4ED8), fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.5)), // blue-700
                     )).toList(),
                   ),
                   const SizedBox(height: 16),
@@ -262,9 +362,9 @@ class _CardView extends StatelessWidget {
                   // Location & Availability
                   Row(
                     children: [
-                      const Icon(LucideIcons.mapPin, size: 16, color: Colors.grey),
+                       const Icon(LucideIcons.mapPin, size: 16, color: Colors.grey),
                       const SizedBox(width: 8),
-                      Text(item['location'], style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.bold)),
+                      Text(item['location'] ?? 'Ubicación no especificada', style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.bold)),
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -272,7 +372,7 @@ class _CardView extends StatelessWidget {
                     children: [
                       const Icon(LucideIcons.clock, size: 16, color: Colors.grey),
                       const SizedBox(width: 8),
-                      Text(item['availability'], style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.bold)),
+                      Text(item['availability'] ?? 'Tiempo Completo', style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.bold)),
                     ],
                   ),
                   

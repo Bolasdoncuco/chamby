@@ -36,6 +36,13 @@ class AppShell extends StatelessWidget {
           if (userRole == UserRole.employer) ...[
             IconButton(
               icon: Icon(
+                LucideIcons.search,
+                color: currentView == CurrentView.feed ? const Color(0xFF2563EB) : Colors.grey[400],
+              ),
+              onPressed: () => authProvider.setCurrentView(CurrentView.feed),
+            ),
+            IconButton(
+              icon: Icon(
                 LucideIcons.layoutDashboard,
                 color: currentView == CurrentView.dashboard ? const Color(0xFF2563EB) : Colors.grey[400],
               ),

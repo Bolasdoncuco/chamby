@@ -1,18 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
-
-class Vacancy {
-  final int id;
-  final String title;
-  final double salary;
-  final String status;
-  final int matches;
-  final int views;
-
-  Vacancy({required this.id, required this.title, required this.salary, required this.status, required this.matches, required this.views});
-}
+import '../../services/api_service.dart';
 
 class EmployerDashboardScreen extends StatefulWidget {
   const EmployerDashboardScreen({super.key});
@@ -22,11 +13,35 @@ class EmployerDashboardScreen extends StatefulWidget {
 }
 
 class _EmployerDashboardScreenState extends State<EmployerDashboardScreen> {
-  final List<Vacancy> _vacancies = [
-    Vacancy(id: 1, title: 'Cajero Turno Vespertino', salary: 8500, status: 'active', matches: 12, views: 45),
-    Vacancy(id: 2, title: 'Barista Experto', salary: 9000, status: 'paused', matches: 8, views: 22),
-    Vacancy(id: 3, title: 'Auxiliar de Limpieza', salary: 6000, status: 'active', matches: 25, views: 110),
-  ];
+  List<Map<String, dynamic>> _vacancies = [];
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVacancies();
+  }
+
+  Future<void> _loadVacancies() async {
+    try {
+      final response = await ApiService.get('/employers/vacancies');
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (mounted) {
+          setState(() {
+            _vacancies = List<Map<String, dynamic>>.from(data['vacancies'] ?? []);
+            _isLoading = false;
+          });
+        }
+      } else {
+        if (mounted) setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -62,14 +77,18 @@ class _EmployerDashboardScreenState extends State<EmployerDashboardScreen> {
             ),
           ),
           Expanded(
-            child: ListView.separated(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-              itemCount: _vacancies.length,
-              separatorBuilder: (context, index) => const SizedBox(height: 16),
-              itemBuilder: (context, index) {
-                return _VacancyCard(vacancy: _vacancies[index]);
-              },
-            ),
+            child: _isLoading 
+              ? const Center(child: CircularProgressIndicator())
+              : _vacancies.isEmpty 
+                ? const Center(child: Text('No has publicado ninguna vacante.', style: TextStyle(color: Colors.grey)))
+                : ListView.separated(
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                    itemCount: _vacancies.length,
+                    separatorBuilder: (context, index) => const SizedBox(height: 16),
+                    itemBuilder: (context, index) {
+                      return _VacancyCard(vacancy: _vacancies[index]);
+                    },
+                  ),
           )
         ],
       ),
@@ -78,13 +97,18 @@ class _EmployerDashboardScreenState extends State<EmployerDashboardScreen> {
 }
 
 class _VacancyCard extends StatelessWidget {
-  final Vacancy vacancy;
+  final Map<String, dynamic> vacancy;
 
   const _VacancyCard({required this.vacancy});
 
   @override
   Widget build(BuildContext context) {
-    final isActive = vacancy.status == 'active';
+    final isActive = vacancy['isActive'] == true;
+    final title = vacancy['title'] ?? 'Sin título';
+    final salary = vacancy['salaryMin'] ?? 0;
+    // En el futuro puedes añadir conteo real de backend
+    final int matches = 0;
+    final int views = 0;
 
     return Container(
       decoration: BoxDecoration(
@@ -118,8 +142,8 @@ class _VacancyCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(vacancy.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF0F172A))),
-                    Text('\$${vacancy.salary.toStringAsFixed(0)} / mes', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF2563EB))),
+                    Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF0F172A))),
+                    Text('\$${salary.toStringAsFixed(0)} / mes', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: Color(0xFF2563EB))),
                   ],
                 ),
               ),
@@ -140,9 +164,9 @@ class _VacancyCard extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                _StatItem(label: 'Matches', value: vacancy.matches.toString(), icon: LucideIcons.users, iconColor: Colors.blue[500]!),
+                _StatItem(label: 'Matches', value: matches.toString(), icon: LucideIcons.users, iconColor: Colors.blue[500]!),
                 Container(width: 1, height: 32, color: Colors.grey[50]),
-                _StatItem(label: 'Vistas', value: vacancy.views.toString(), icon: LucideIcons.eye, iconColor: Colors.grey[400]!),
+                _StatItem(label: 'Vistas', value: views.toString(), icon: LucideIcons.eye, iconColor: Colors.grey[400]!),
                 Container(width: 1, height: 32, color: Colors.grey[50]),
                 Column(
                   children: [

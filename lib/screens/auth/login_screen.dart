@@ -22,9 +22,32 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _handleSubmit() {
-    // In a functional mockup, simply call handleAuthSuccess
-    context.read<AuthProvider>().handleAuthSuccess(_role);
+  bool _isLoading = false;
+
+  void _handleSubmit() async {
+    if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Por favor ingresa correo y contraseña')),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    
+    try {
+      await context.read<AuthProvider>().login(
+        _emailController.text.trim(),
+        _passwordController.text,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceAll('Exception: ', ''))),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -134,15 +157,23 @@ class _LoginScreenState extends State<LoginScreen> {
                             elevation: 4,
                             shadowColor: const Color(0xFFBFDBFE), // blue-200
                           ),
-                          child: const Row(
+                          child: Row(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              Text(
-                                'Iniciar Sesión',
-                                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                              ),
-                              SizedBox(width: 8),
-                              Icon(LucideIcons.arrowRight, size: 20),
+                              if (_isLoading)
+                                const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                )
+                              else ...[
+                                const Text(
+                                  'Iniciar Sesión',
+                                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                                ),
+                                const SizedBox(width: 8),
+                                const Icon(LucideIcons.arrowRight, size: 20),
+                              ],
                             ],
                           ),
                         ),

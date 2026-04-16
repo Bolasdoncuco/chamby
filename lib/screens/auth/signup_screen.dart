@@ -1,7 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import '../../providers/auth_provider.dart';
+import '../../utils/image_utils.dart';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -15,7 +17,8 @@ class _SignupScreenState extends State<SignupScreen> {
   int _step = 1;
 
   // Form State - Candidate
-  final _nameController = TextEditingController();
+  final _firstNameController = TextEditingController();
+  final _lastNameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _whatsappController = TextEditingController();
@@ -31,9 +34,13 @@ class _SignupScreenState extends State<SignupScreen> {
   final _companyController = TextEditingController();
   String _selectedSector = '';
 
+  String? _base64Photo;
+  bool _isLoading = false;
+
   @override
   void dispose() {
-    _nameController.dispose();
+    _firstNameController.dispose();
+    _lastNameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
     _whatsappController.dispose();
@@ -46,13 +53,85 @@ class _SignupScreenState extends State<SignupScreen> {
     super.dispose();
   }
 
-  void _handleNext() {
+  void _handleNext() async {
+    // Validaciones de campos obligatorios
+    String? errorMsg;
+    if (_role == UserRole.candidate) {
+      if (_step == 1) {
+        if (_firstNameController.text.trim().isEmpty) errorMsg = 'El nombre es obligatorio.';
+        else if (_lastNameController.text.trim().isEmpty) errorMsg = 'El apellido es obligatorio.';
+        else if (_emailController.text.trim().isEmpty) errorMsg = 'El email es obligatorio.';
+        else if (_passwordController.text.isEmpty) errorMsg = 'La contraseña es obligatoria.';
+      } else if (_step == 2) {
+        if (_headlineController.text.trim().isEmpty) errorMsg = 'El Headline u ocupación es obligatorio.';
+        else if (_locationController.text.trim().isEmpty) errorMsg = 'La ubicación es obligatoria.';
+      } else if (_step == 3) {
+        if (_skills.isEmpty) errorMsg = 'Por favor, agrega al menos una habilidad.';
+      }
+    } else if (_role == UserRole.employer) {
+      if (_companyController.text.trim().isEmpty) errorMsg = 'El nombre de la empresa es obligatorio.';
+      else if (_emailController.text.trim().isEmpty) errorMsg = 'El email corporativo es obligatorio.';
+      else if (_passwordController.text.isEmpty) errorMsg = 'La contraseña es obligatoria.';
+      else if (_selectedSector.isEmpty) errorMsg = 'Por favor, selecciona un sector industrial.';
+    }
+
+    if (errorMsg != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMsg, style: const TextStyle(fontWeight: FontWeight.bold)),
+          backgroundColor: Colors.red[600],
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
     if (_role == UserRole.candidate && _step < 3) {
       setState(() => _step++);
     } else if (_role == UserRole.employer && _step < 1) {
       setState(() => _step++);
     } else {
-      context.read<AuthProvider>().handleAuthSuccess(_role!);
+      // Final Registration
+      setState(() => _isLoading = true);
+      try {
+        final registrationData = <String, dynamic>{
+          'email': _emailController.text.trim(),
+          'password': _passwordController.text,
+          'role': _role == UserRole.employer ? 'EMPLOYER' : 'CANDIDATE',
+        };
+
+        if (_role == UserRole.candidate) {
+          registrationData['firstName'] = _firstNameController.text.trim();
+          registrationData['lastName'] = _lastNameController.text.trim();
+          registrationData['profile'] = {
+            'bio': _headlineController.text,
+            'role': _headlineController.text.isNotEmpty ? _headlineController.text.split(',').first : 'Candidato',
+            'availability': _locationController.text,
+            'phone': _whatsappController.text,
+            'whatsapp': _whatsappController.text,
+            'photoData': _base64Photo,
+            'skills': _skills,
+          };
+        } else {
+          registrationData['companyName'] = _companyController.text.trim();
+          registrationData['profile'] = {
+            'description': _selectedSector,
+          };
+        }
+
+        await context.read<AuthProvider>().register(
+          data: registrationData,
+          role: _role!,
+        );
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(e.toString().replaceAll('Exception: ', ''))),
+          );
+        }
+      } finally {
+        if (mounted) setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -135,12 +214,20 @@ class _SignupScreenState extends State<SignupScreen> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Text(
-                            _step == (_role == UserRole.candidate ? 3 : 1) ? 'Finalizar Registro' : 'Siguiente Paso',
-                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(width: 8),
-                          const Icon(LucideIcons.arrowRight, size: 20),
+                          if (_isLoading)
+                            const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                            )
+                          else ...[
+                            Text(
+                              _step == (_role == UserRole.candidate ? 3 : 1) ? 'Finalizar Registro' : 'Siguiente Paso',
+                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(width: 8),
+                            const Icon(LucideIcons.arrowRight, size: 20),
+                          ],
                         ],
                       ),
                     ),
@@ -237,7 +324,9 @@ class _SignupScreenState extends State<SignupScreen> {
         const Text('Identidad Básica', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
         Text('Comencemos con lo esencial', style: TextStyle(color: Colors.grey[500])),
         const SizedBox(height: 24),
-        _CustomTextField(controller: _nameController, icon: LucideIcons.user, hintText: 'Nombre completo'),
+        _CustomTextField(controller: _firstNameController, icon: LucideIcons.user, hintText: 'Nombre(s)'),
+        const SizedBox(height: 16),
+        _CustomTextField(controller: _lastNameController, icon: LucideIcons.user, hintText: 'Apellido(s)'),
         const SizedBox(height: 16),
         _CustomTextField(controller: _emailController, icon: LucideIcons.mail, hintText: 'Email', keyboardType: TextInputType.emailAddress),
         const SizedBox(height: 16),
@@ -256,21 +345,35 @@ class _SignupScreenState extends State<SignupScreen> {
         Text('Así te verán las empresas', style: TextStyle(color: Colors.grey[500])),
         const SizedBox(height: 24),
         Center(
-          child: Container(
-             width: 96, height: 96,
-             decoration: BoxDecoration(
-               color: Colors.grey[100],
-               borderRadius: BorderRadius.circular(24),
-               border: Border.all(color: Colors.grey[300]!, width: 2, style: BorderStyle.solid), // Fluttter doesn't have dashed border built-in easily
-             ),
-             child: Column(
-               mainAxisAlignment: MainAxisAlignment.center,
-               children: [
-                 Icon(LucideIcons.camera, color: Colors.grey[400]),
-                 const SizedBox(height: 4),
-                 Text('FOTO', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey[400])),
-               ],
-             ),
+          child: GestureDetector(
+            onTap: () async {
+              final base64 = await ImageUtils.pickAndCompressImage();
+              if (base64 != null) {
+                setState(() => _base64Photo = base64);
+              }
+            },
+            child: Container(
+               width: 96, height: 96,
+               decoration: BoxDecoration(
+                 color: Colors.grey[100],
+                 borderRadius: BorderRadius.circular(24),
+                 border: Border.all(color: _base64Photo != null ? const Color(0xFF2563EB) : Colors.grey[300]!, width: 2),
+                 image: _base64Photo != null 
+                   ? DecorationImage(
+                       image: MemoryImage(base64Decode(_base64Photo!)), 
+                       fit: BoxFit.cover
+                     ) 
+                   : null,
+               ),
+               child: _base64Photo == null ? Column(
+                 mainAxisAlignment: MainAxisAlignment.center,
+                 children: [
+                   Icon(LucideIcons.camera, color: Colors.grey[400]),
+                   const SizedBox(height: 4),
+                   Text('FOTO', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey[400])),
+                 ],
+               ) : null,
+            ),
           ),
         ),
         const SizedBox(height: 24),

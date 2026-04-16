@@ -1,11 +1,84 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'dart:convert';
+import '../../services/api_service.dart';
 
-class CandidateProfileScreen extends StatelessWidget {
+class CandidateProfileScreen extends StatefulWidget {
   const CandidateProfileScreen({super.key});
 
   @override
+  State<CandidateProfileScreen> createState() => _CandidateProfileScreenState();
+}
+
+class _CandidateProfileScreenState extends State<CandidateProfileScreen> {
+  Map<String, dynamic>? _profile;
+  bool _isLoading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    try {
+      final response = await ApiService.get('/candidates/profile');
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        setState(() {
+          _profile = data['profile'];
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          _error = 'Error cargando perfil: ${response.statusCode}';
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = 'Error de conexión: $e';
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(
+        backgroundColor: Color(0xFFF8FAFC),
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_error != null) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        body: Center(child: Text(_error!, style: const TextStyle(color: Colors.red))),
+      );
+    }
+
+    if (_profile == null) {
+       return const Scaffold(
+        backgroundColor: Color(0xFFF8FAFC),
+        body: Center(child: Text('Perfil no encontrado.')),
+      );
+    }
+
+    final p = _profile!;
+    final name = '${p['firstName'] ?? ''} ${p['lastName'] ?? ''}'.trim();
+    final role = p['role'] ?? 'Candidato';
+    final location = p['latitude'] != null ? 'Ubicación Disponible' : 'Ubicación no especificada';
+    final experience = '${p['experience'] ?? 0} años de experiencia';
+    final availability = p['availability'] ?? 'Flexible';
+    final bio = (p['bio'] == null || p['bio'].toString().isEmpty) ? 'Sin descripción' : p['bio'];
+    final skills = List<String>.from(p['skills'] ?? []);
+    final photoData = p['photoData'];
+
     return Container(
       color: Colors.grey[50], // slate-50
       child: SingleChildScrollView(
@@ -32,13 +105,18 @@ class CandidateProfileScreen extends StatelessWidget {
                       Container(
                         height: 192, // h-48
                         color: const Color(0xFF2563EB), // blue-600
-                        child: Image.network(
-                          'https://picsum.photos/seed/alex/400/300',
-                          width: double.infinity,
-                          fit: BoxFit.cover,
-                          color: Colors.black.withOpacity(0.2),
-                          colorBlendMode: BlendMode.darken,
-                        ),
+                        child: photoData != null 
+                          ? Image.memory(
+                              base64Decode(photoData),
+                              width: double.infinity,
+                              fit: BoxFit.cover,
+                              color: Colors.black.withOpacity(0.2),
+                              colorBlendMode: BlendMode.darken,
+                            )
+                          : Container(
+                              width: double.infinity,
+                              color: const Color(0xFF2563EB),
+                            ),
                       ),
                       Padding(
                         padding: const EdgeInsets.all(16.0),
@@ -81,14 +159,14 @@ class CandidateProfileScreen extends StatelessWidget {
                           child: Column(
                              crossAxisAlignment: CrossAxisAlignment.start,
                              children: [
-                                const Text('Alex, 22', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
-                                const Text('Barista / Cajero', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF2563EB))),
+                                Text(name, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                                Text(role, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF2563EB))),
                                 const SizedBox(height: 24),
-                                _ProfileInfoRow(icon: LucideIcons.mapPin, text: 'Centro, Ciudad'),
+                                _ProfileInfoRow(icon: LucideIcons.mapPin, text: location),
                                 const SizedBox(height: 16),
-                                _ProfileInfoRow(icon: LucideIcons.clock, text: 'Tiempo completo'),
+                                _ProfileInfoRow(icon: LucideIcons.clock, text: availability),
                                 const SizedBox(height: 16),
-                                _ProfileInfoRow(icon: LucideIcons.award, text: '2 años de experiencia'),
+                                _ProfileInfoRow(icon: LucideIcons.award, text: experience),
                              ],
                           ),
                         )
@@ -100,7 +178,7 @@ class CandidateProfileScreen extends StatelessWidget {
             ),
             
             // About Me
-            _SectionHeader(title: 'Sobre mí'),
+            const _SectionHeader(title: 'Sobre mí'),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(16),
@@ -111,35 +189,37 @@ class CandidateProfileScreen extends StatelessWidget {
                 border: Border.all(color: Colors.grey[100]!),
               ),
               child: Text(
-                'Barista energético buscando un ambiente de café concurrido. ¡Prospero bajo presión y me encanta el arte latte!',
+                bio,
                 style: TextStyle(color: Colors.grey[600], height: 1.5),
               ),
             ),
 
             // Skills
-            _SectionHeader(title: 'Habilidades'),
-            Container(
-              margin: const EdgeInsets.only(bottom: 24),
-              width: double.infinity,
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: ['Dinámico', 'Arte Latte', 'Sistemas POS', 'Atención al Cliente', 'Inglés Básico']
-                  .map((skill) => Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      border: Border.all(color: Colors.grey[100]!),
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))],
-                    ),
-                    child: Text(skill, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.grey[700])),
-                  )).toList(),
+            if (skills.isNotEmpty) ...[
+              const _SectionHeader(title: 'Habilidades'),
+              Container(
+                margin: const EdgeInsets.only(bottom: 24),
+                width: double.infinity,
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: skills
+                    .map((skill) => Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        border: Border.all(color: Colors.grey[100]!),
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))],
+                      ),
+                      child: Text(skill, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.grey[700])),
+                    )).toList(),
+                ),
               ),
-            ),
+            ],
 
-            // Video Pitch
-            _SectionHeader(title: 'Mi Video Pitch'),
+            // Video Pitch (Optional / Placeholder if not set)
+            const _SectionHeader(title: 'Mi Video Pitch'),
             Container(
               margin: const EdgeInsets.only(bottom: 32),
               width: double.infinity,
@@ -154,17 +234,23 @@ class CandidateProfileScreen extends StatelessWidget {
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                       Image.network('https://picsum.photos/seed/alex/600/400', fit: BoxFit.cover),
-                       Container(color: Colors.black.withOpacity(0.2)),
+                       Container(color: Colors.black.withOpacity(0.1)),
                        Center(
-                         child: Container(
-                           width: 48, height: 48,
-                           decoration: BoxDecoration(
-                             color: Colors.white,
-                             shape: BoxShape.circle,
-                             boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 10)],
-                           ),
-                           child: const Icon(LucideIcons.play, color: Color(0xFF2563EB), size: 24),
+                         child: Column(
+                           mainAxisAlignment: MainAxisAlignment.center,
+                           children: [
+                             Container(
+                               width: 48, height: 48,
+                               decoration: BoxDecoration(
+                                 color: Colors.white,
+                                 shape: BoxShape.circle,
+                                 boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 10)],
+                               ),
+                               child: const Icon(LucideIcons.play, color: Color(0xFF2563EB), size: 24),
+                             ),
+                             const SizedBox(height: 8),
+                             Text('Video no disponible', style: TextStyle(color: Colors.grey[600], fontSize: 12))
+                           ],
                          ),
                        )
                     ],

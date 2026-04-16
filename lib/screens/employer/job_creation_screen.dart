@@ -1,7 +1,10 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/api_service.dart';
+import '../../utils/image_utils.dart';
 
 class JobCreationScreen extends StatefulWidget {
   const JobCreationScreen({super.key});
@@ -13,6 +16,14 @@ class JobCreationScreen extends StatefulWidget {
 class _JobCreationScreenState extends State<JobCreationScreen> {
   final List<String> _tags = [];
   final _tagController = TextEditingController();
+  final _titleController = TextEditingController();
+  final _salaryController = TextEditingController();
+  final _addressController = TextEditingController();
+  bool _isLoading = false;
+  bool _isInit = true;
+  String? _vacancyId;
+  final List<String> _imagesData = [];
+
   final List<String> _benefits = [];
 
   final List<Map<String, dynamic>> _benefitOptions = [
@@ -25,7 +36,87 @@ class _JobCreationScreenState extends State<JobCreationScreen> {
   @override
   void dispose() {
     _tagController.dispose();
+    _titleController.dispose();
+    _salaryController.dispose();
+    _addressController.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_isInit) {
+      final authProvider = context.read<AuthProvider>();
+      if (authProvider.currentView == CurrentView.editVacancy && authProvider.selectedVacancy != null) {
+        final vacancy = authProvider.selectedVacancy!;
+        _vacancyId = vacancy['id'];
+        _titleController.text = vacancy['title'] ?? '';
+        final double minSalary = (vacancy['salaryMin'] ?? 0).toDouble();
+        if (minSalary > 0) _salaryController.text = minSalary.toStringAsFixed(0);
+        _addressController.text = vacancy['availabilityTarget'] ?? '';
+        
+        if (vacancy['requirements'] != null) {
+           _tags.addAll(List<String>.from(vacancy['requirements']));
+        }
+        if (vacancy['providesTransport'] == true) {
+          _benefits.add('transporte');
+        }
+        if (vacancy['images'] != null) {
+          _imagesData.addAll(List<String>.from(vacancy['images']));
+        }
+      }
+      _isInit = false;
+    }
+  }
+
+  Future<void> _publishVacancy() async {
+    final title = _titleController.text.trim();
+    final salaryStr = _salaryController.text.trim();
+    final address = _addressController.text.trim();
+
+    if (title.isEmpty || salaryStr.isEmpty) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Por favor llena el título y sueldo'), backgroundColor: Colors.red));
+      return;
+    }
+
+    final double salary = double.tryParse(salaryStr) ?? 0;
+
+    setState(() => _isLoading = true);
+    
+    try {
+      final isEdit = _vacancyId != null;
+      final body = {
+        'title': title,
+        'roleTitle': title,
+        'salaryMin': salary,
+        'salaryMax': salary,
+        'requirements': _tags,
+        'availabilityTarget': address,
+        'description': 'Vacante generada en Chamby App',
+        'providesTransport': _benefits.contains('transporte'),
+        'images': _imagesData,
+      };
+
+      final response = isEdit 
+          ? await ApiService.put('/employers/vacancies/$_vacancyId', body)
+          : await ApiService.post('/employers/vacancies', body);
+      
+      if (response.statusCode == 201 || response.statusCode == 200) {
+         if (mounted) {
+           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+             content: Text(isEdit ? 'Vacante actualizada con éxito' : 'Vacante publicada con éxito'), 
+             backgroundColor: Colors.green
+           ));
+           context.read<AuthProvider>().setCurrentView(CurrentView.dashboard);
+         }
+      } else {
+         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error al procesar la vacante'), backgroundColor: Colors.red));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Error de conexión'), backgroundColor: Colors.red));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   void _addTag() {
@@ -45,6 +136,23 @@ class _JobCreationScreenState extends State<JobCreationScreen> {
       } else {
         _benefits.add(id);
       }
+    });
+  }
+
+  Future<void> _pickImage() async {
+    final base64Image = await ImageUtils.pickAndCompressImage();
+    if (base64Image != null) {
+      if (mounted) {
+        setState(() {
+          _imagesData.add(base64Image);
+        });
+      }
+    }
+  }
+
+  void _removeImage(int index) {
+    setState(() {
+      _imagesData.removeAt(index);
     });
   }
 
@@ -75,7 +183,7 @@ class _JobCreationScreenState extends State<JobCreationScreen> {
                       child: const Icon(LucideIcons.briefcase, color: Color(0xFF2563EB)), // blue-600
                     ),
                     const SizedBox(width: 12),
-                    const Text('Nueva Vacante', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))), // slate-900
+                    Text(_vacancyId != null ? 'Editar Vacante' : 'Nueva Vacante', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))), // slate-900
                   ],
                 ),
                 IconButton(
@@ -93,7 +201,7 @@ class _JobCreationScreenState extends State<JobCreationScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _InputLabel('Título del Puesto'),
-                  _CustomTextField(hintText: 'Ej. Cajero Turno Vespertino'),
+                  _CustomTextField(controller: _titleController, hintText: 'Ej. Cajero Turno Vespertino'),
                   const SizedBox(height: 16),
 
                   _InputLabel('Sueldo Ofertado'),
@@ -101,7 +209,7 @@ class _JobCreationScreenState extends State<JobCreationScreen> {
                     children: [
                       Expanded(
                         flex: 2,
-                        child: _CustomTextField(hintText: 'Ej. 8000', icon: LucideIcons.dollarSign, keyboardType: TextInputType.number),
+                        child: _CustomTextField(controller: _salaryController, hintText: 'Ej. 8000', icon: LucideIcons.dollarSign, keyboardType: TextInputType.number),
                       ),
                       const SizedBox(width: 8),
                       Expanded(
@@ -156,7 +264,7 @@ class _JobCreationScreenState extends State<JobCreationScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  _CustomTextField(hintText: 'Dirección exacta', isWhite: true),
+                  _CustomTextField(controller: _addressController, hintText: 'Dirección exacta', isWhite: true),
                   const SizedBox(height: 24),
 
                   _InputLabel('Requisitos (Skills)'),
@@ -228,38 +336,63 @@ class _JobCreationScreenState extends State<JobCreationScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  _InputLabel('Galería del Lugar'),
+                  _InputLabel('Fotos del lugar/logo'),
                   SizedBox(
                     height: 100,
                     child: ListView(
                       scrollDirection: Axis.horizontal,
                       children: [
-                         Container(
-                           width: 100,
-                           margin: const EdgeInsets.only(right: 12),
-                           decoration: BoxDecoration(
-                             color: Colors.grey[100],
-                             borderRadius: BorderRadius.circular(16),
-                             border: Border.all(color: Colors.grey[300]!, width: 2),
-                           ),
-                           child: Column(
-                             mainAxisAlignment: MainAxisAlignment.center,
-                             children: [
-                               Icon(LucideIcons.plus, color: Colors.grey[400]),
-                               Text('AÑADIR FOTO', style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.grey[400])),
-                             ],
+                         GestureDetector(
+                           onTap: _pickImage,
+                           child: Container(
+                             width: 100,
+                             margin: const EdgeInsets.only(right: 12),
+                             decoration: BoxDecoration(
+                               color: Colors.grey[100],
+                               borderRadius: BorderRadius.circular(16),
+                               border: Border.all(color: Colors.grey[300]!, width: 2),
+                             ),
+                             child: Column(
+                               mainAxisAlignment: MainAxisAlignment.center,
+                               children: [
+                                 Icon(LucideIcons.plus, color: Colors.grey[400]),
+                                 Text('AÑADIR FOTO', style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: Colors.grey[400])),
+                               ],
+                             ),
                            ),
                          ),
-                         for (var i in [1, 2])
-                           Container(
+                         ..._imagesData.asMap().entries.map((entry) {
+                           int idx = entry.key;
+                           String base64Str = entry.value;
+                           return Container(
                              width: 100,
                              margin: const EdgeInsets.only(right: 12),
                              decoration: BoxDecoration(
                                color: Colors.grey[200],
                                borderRadius: BorderRadius.circular(16),
-                               image: DecorationImage(image: NetworkImage('https://picsum.photos/seed/office$i/200/200'), fit: BoxFit.cover),
+                               // Fallback background color in case parsing fails
+                               image: DecorationImage(
+                                 image: MemoryImage(base64Decode(base64Str)),
+                                 fit: BoxFit.cover,
+                               ),
                              ),
-                           ),
+                             child: Stack(
+                               children: [
+                                 Positioned(
+                                   top: 4, right: 4,
+                                   child: GestureDetector(
+                                     onTap: () => _removeImage(idx),
+                                     child: Container(
+                                       decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle),
+                                       padding: const EdgeInsets.all(4),
+                                       child: const Icon(LucideIcons.x, size: 12, color: Colors.white),
+                                     ),
+                                   ),
+                                 ),
+                               ],
+                             ),
+                           );
+                         }).toList(),
                       ],
                     ),
                   ),
@@ -268,7 +401,7 @@ class _JobCreationScreenState extends State<JobCreationScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: () => context.read<AuthProvider>().setCurrentView(CurrentView.dashboard),
+                      onPressed: _isLoading ? null : _publishVacancy,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF2563EB),
                         foregroundColor: Colors.white,
@@ -277,7 +410,9 @@ class _JobCreationScreenState extends State<JobCreationScreen> {
                         elevation: 8,
                         shadowColor: const Color(0xFFBFDBFE),
                       ),
-                      child: const Text('Publicar Vacante', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      child: _isLoading
+                          ? const CircularProgressIndicator(color: Colors.white)
+                          : Text(_vacancyId != null ? 'Guardar Cambios' : 'Publicar Vacante', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                     ),
                   ),
                 ],
