@@ -1,310 +1,340 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
-import 'dart:convert';
-import '../../services/api_service.dart';
+
+import '../../models/candidate.dart';
+import '../../services/candidate_service.dart';
+import '../../theme/app_colors.dart';
 
 class CandidateProfileScreen extends StatefulWidget {
-  const CandidateProfileScreen({super.key});
+  const CandidateProfileScreen({super.key, CandidateGateway? gateway})
+    : _gateway = gateway;
+
+  final CandidateGateway? _gateway;
 
   @override
   State<CandidateProfileScreen> createState() => _CandidateProfileScreenState();
 }
 
 class _CandidateProfileScreenState extends State<CandidateProfileScreen> {
-  Map<String, dynamic>? _profile;
+  final _formKey = GlobalKey<FormState>();
+  final _firstName = TextEditingController();
+  final _lastName = TextEditingController();
+  final _role = TextEditingController();
+  final _bio = TextEditingController();
+  final _skills = TextEditingController();
+  final _experience = TextEditingController();
+  final _availability = TextEditingController();
+  final _phone = TextEditingController();
+  final _whatsapp = TextEditingController();
+  late final CandidateGateway _gateway;
+
+  Candidate? _profile;
   bool _isLoading = true;
-  String? _error;
+  bool _isSaving = false;
+  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-    _loadProfile();
+    _gateway = widget._gateway ?? ApiCandidateGateway();
+    _load();
   }
 
-  Future<void> _loadProfile() async {
+  @override
+  void dispose() {
+    _firstName.dispose();
+    _lastName.dispose();
+    _role.dispose();
+    _bio.dispose();
+    _skills.dispose();
+    _experience.dispose();
+    _availability.dispose();
+    _phone.dispose();
+    _whatsapp.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
     try {
-      final response = await ApiService.get('/candidates/profile');
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        setState(() {
-          _profile = data['profile'];
-          _isLoading = false;
-        });
-      } else {
-        setState(() {
-          _error = 'Error cargando perfil: ${response.statusCode}';
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _error = 'Error de conexión: $e';
-          _isLoading = false;
-        });
-      }
+      final profile = await _gateway.loadProfile();
+      if (!mounted) return;
+      _setDraft(CandidateProfileDraft.fromCandidate(profile));
+      setState(() => _profile = profile);
+    } catch (error) {
+      if (mounted) setState(() => _errorMessage = candidateErrorMessage(error));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _setDraft(CandidateProfileDraft draft) {
+    _firstName.text = draft.firstName;
+    _lastName.text = draft.lastName;
+    _role.text = draft.role;
+    _bio.text = draft.bio;
+    _skills.text = draft.skills.join(', ');
+    _experience.text = draft.experience?.toString() ?? '';
+    _availability.text = draft.availability;
+    _phone.text = draft.phone;
+    _whatsapp.text = draft.whatsapp;
+  }
+
+  CandidateProfileDraft _draft() => CandidateProfileDraft(
+    firstName: _firstName.text,
+    lastName: _lastName.text,
+    role: _role.text,
+    bio: _bio.text,
+    skills: _skills.text.split(','),
+    experience: parseCandidateExperience(_experience.text),
+    availability: _availability.text,
+    phone: _phone.text,
+    whatsapp: _whatsapp.text,
+  );
+
+  Future<void> _save() async {
+    if (_isSaving || !(_formKey.currentState?.validate() ?? false)) return;
+    setState(() {
+      _isSaving = true;
+      _errorMessage = null;
+    });
+    try {
+      final profile = await _gateway.saveProfile(_draft());
+      if (!mounted) return;
+      _setDraft(CandidateProfileDraft.fromCandidate(profile));
+      setState(() => _profile = profile);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Tu perfil fue actualizado.')),
+      );
+    } catch (error) {
+      if (mounted) setState(() => _errorMessage = candidateErrorMessage(error));
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Scaffold(
-        backgroundColor: Color(0xFFF8FAFC),
-        body: Center(child: CircularProgressIndicator()),
-      );
+    if (_isLoading) return const Center(child: CircularProgressIndicator());
+    if (_errorMessage != null && _profile == null) {
+      return _ErrorState(message: _errorMessage!, onRetry: _load);
     }
 
-    if (_error != null) {
-      return Scaffold(
-        backgroundColor: const Color(0xFFF8FAFC),
-        body: Center(child: Text(_error!, style: const TextStyle(color: Colors.red))),
-      );
-    }
-
-    if (_profile == null) {
-       return const Scaffold(
-        backgroundColor: Color(0xFFF8FAFC),
-        body: Center(child: Text('Perfil no encontrado.')),
-      );
-    }
-
-    final p = _profile!;
-    final name = '${p['firstName'] ?? ''} ${p['lastName'] ?? ''}'.trim();
-    final role = p['role'] ?? 'Candidato';
-    final location = p['latitude'] != null ? 'Ubicación Disponible' : 'Ubicación no especificada';
-    final experience = '${p['experience'] ?? 0} años de experiencia';
-    final availability = p['availability'] ?? 'Flexible';
-    final bio = (p['bio'] == null || p['bio'].toString().isEmpty) ? 'Sin descripción' : p['bio'];
-    final skills = List<String>.from(p['skills'] ?? []);
-    final photoData = p['photoData'];
-
-    return Container(
-      color: Colors.grey[50], // slate-50
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          children: [
-            // Profile Card
-            Container(
-              margin: const EdgeInsets.only(bottom: 24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: Colors.grey[100]!),
-                boxShadow: [
-                  BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4)),
-                ],
+    return Material(
+      color: AppColors.background,
+      child: SafeArea(
+        child: Form(
+          key: _formKey,
+          child: ListView(
+            padding: const EdgeInsets.all(24),
+            children: [
+              _ProfileHeader(profile: _profile),
+              const SizedBox(height: 24),
+              const Text(
+                'Tu perfil',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.slate900,
+                ),
               ),
-              clipBehavior: Clip.antiAlias,
-              child: Column(
+              const SizedBox(height: 4),
+              const Text(
+                'Esta información se muestra a las empresas que te recomiende Chamby.',
+              ),
+              const SizedBox(height: 20),
+              if (_errorMessage != null) _InlineError(message: _errorMessage!),
+              Row(
                 children: [
-                   Stack(
-                    alignment: Alignment.topRight,
-                    children: [
-                      Container(
-                        height: 192, // h-48
-                        color: const Color(0xFF2563EB), // blue-600
-                        child: photoData != null 
-                          ? Image.memory(
-                              base64Decode(photoData),
-                              width: double.infinity,
-                              fit: BoxFit.cover,
-                              color: Colors.black.withOpacity(0.2),
-                              colorBlendMode: BlendMode.darken,
-                            )
-                          : Container(
-                              width: double.infinity,
-                              color: const Color(0xFF2563EB),
-                            ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: CircleAvatar(
-                          backgroundColor: Colors.white.withOpacity(0.2),
-                          child: IconButton(
-                            icon: const Icon(LucideIcons.edit2, size: 18, color: Colors.white),
-                            onPressed: () {},
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.all(24.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Transform.translate(
-                          offset: const Offset(0, -64), // -mt-12 + extra for centering
-                          child: Container(
-                            width: 96, height: 96,
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(16),
-                              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 10)],
-                            ),
-                            padding: const EdgeInsets.all(4),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFEFF6FF), // blue-50
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: const Icon(LucideIcons.user, size: 48, color: Color(0xFF2563EB)),
-                            ),
-                          ),
-                        ),
-                        Transform.translate(
-                          offset: const Offset(0, -48),
-                          child: Column(
-                             crossAxisAlignment: CrossAxisAlignment.start,
-                             children: [
-                                Text(name, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
-                                Text(role, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF2563EB))),
-                                const SizedBox(height: 24),
-                                _ProfileInfoRow(icon: LucideIcons.mapPin, text: location),
-                                const SizedBox(height: 16),
-                                _ProfileInfoRow(icon: LucideIcons.clock, text: availability),
-                                const SizedBox(height: 16),
-                                _ProfileInfoRow(icon: LucideIcons.award, text: experience),
-                             ],
-                          ),
-                        )
-                      ],
-                    ),
+                  Expanded(child: _field(_firstName, 'Nombre', required: true)),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _field(_lastName, 'Apellidos', required: true),
                   ),
                 ],
               ),
-            ),
-            
-            // About Me
-            const _SectionHeader(title: 'Sobre mí'),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              margin: const EdgeInsets.only(bottom: 24),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.grey[100]!),
+              _field(_role, 'Puesto o especialidad'),
+              _field(_availability, 'Disponibilidad'),
+              _field(
+                _experience,
+                'Años de experiencia',
+                keyboardType: TextInputType.number,
+                validator: _experienceValidator,
               ),
-              child: Text(
-                bio,
-                style: TextStyle(color: Colors.grey[600], height: 1.5),
+              _field(
+                _skills,
+                'Habilidades',
+                hint: 'Ej. ventas, POS, atención al cliente',
               ),
-            ),
-
-            // Skills
-            if (skills.isNotEmpty) ...[
-              const _SectionHeader(title: 'Habilidades'),
-              Container(
-                margin: const EdgeInsets.only(bottom: 24),
-                width: double.infinity,
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: skills
-                    .map((skill) => Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        border: Border.all(color: Colors.grey[100]!),
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))],
-                      ),
-                      child: Text(skill, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.grey[700])),
-                    )).toList(),
+              _field(_bio, 'Sobre ti', maxLines: 4),
+              _field(_phone, 'Teléfono', keyboardType: TextInputType.phone),
+              _field(_whatsapp, 'WhatsApp', keyboardType: TextInputType.phone),
+              const SizedBox(height: 8),
+              Semantics(
+                button: true,
+                label: 'Guardar cambios de perfil',
+                child: FilledButton.icon(
+                  onPressed: _isSaving ? null : _save,
+                  icon: _isSaving
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(LucideIcons.save),
+                  label: Text(_isSaving ? 'Guardando…' : 'Guardar cambios'),
                 ),
               ),
             ],
-
-            // Video Pitch (Optional / Placeholder if not set)
-            const _SectionHeader(title: 'Mi Video Pitch'),
-            Container(
-              margin: const EdgeInsets.only(bottom: 32),
-              width: double.infinity,
-              child: AspectRatio(
-                aspectRatio: 16/9,
-                 child: Container(
-                  clipBehavior: Clip.antiAlias,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[200],
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                       Container(color: Colors.black.withOpacity(0.1)),
-                       Center(
-                         child: Column(
-                           mainAxisAlignment: MainAxisAlignment.center,
-                           children: [
-                             Container(
-                               width: 48, height: 48,
-                               decoration: BoxDecoration(
-                                 color: Colors.white,
-                                 shape: BoxShape.circle,
-                                 boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 10)],
-                               ),
-                               child: const Icon(LucideIcons.play, color: Color(0xFF2563EB), size: 24),
-                             ),
-                             const SizedBox(height: 8),
-                             Text('Video no disponible', style: TextStyle(color: Colors.grey[600], fontSize: 12))
-                           ],
-                         ),
-                       )
-                    ],
-                  ),
-                 ),
-              )
-            )
-
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ProfileInfoRow extends StatelessWidget {
-  final IconData icon;
-  final String text;
-
-  const _ProfileInfoRow({required this.icon, required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, size: 18, color: Colors.grey[400]),
-        const SizedBox(width: 12),
-        Text(text, style: TextStyle(color: Colors.grey[600])),
-      ],
-    );
-  }
-}
-
-class _SectionHeader extends StatelessWidget {
-  final String title;
-
-  const _SectionHeader({required this.title});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12.0),
-      child: Align(
-        alignment: Alignment.centerLeft,
-        child: Text(
-          title.toUpperCase(),
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.2,
-            color: Colors.grey[400],
           ),
         ),
       ),
     );
   }
+
+  Widget _field(
+    TextEditingController controller,
+    String label, {
+    String? hint,
+    bool required = false,
+    int maxLines = 1,
+    TextInputType? keyboardType,
+    String? Function(String?)? validator,
+  }) => Padding(
+    padding: const EdgeInsets.only(bottom: 14),
+    child: TextFormField(
+      controller: controller,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        border: const OutlineInputBorder(),
+      ),
+      minLines: maxLines,
+      maxLines: maxLines,
+      keyboardType: keyboardType,
+      validator:
+          validator ??
+          (required
+              ? (value) => value == null || value.trim().isEmpty
+                    ? 'Este campo es obligatorio.'
+                    : null
+              : null),
+    ),
+  );
+
+  String? _experienceValidator(String? value) {
+    if (value == null || value.trim().isEmpty) return null;
+    return parseCandidateExperience(value) == null
+        ? 'Escribe un número entero válido.'
+        : null;
+  }
+}
+
+class _ProfileHeader extends StatelessWidget {
+  const _ProfileHeader({this.profile});
+
+  final Candidate? profile;
+
+  @override
+  Widget build(BuildContext context) {
+    final photoUrl = profile?.photoUrl;
+    final name = '${profile?.firstName ?? ''} ${profile?.lastName ?? ''}'
+        .trim();
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          ClipOval(
+            child: SizedBox(
+              width: 72,
+              height: 72,
+              child: photoUrl == null || photoUrl.isEmpty
+                  ? const ColoredBox(
+                      color: AppColors.secondaryBlue,
+                      child: Icon(
+                        LucideIcons.user,
+                        color: AppColors.primaryBlue,
+                      ),
+                    )
+                  : Image.network(
+                      photoUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) =>
+                          const ColoredBox(
+                            color: AppColors.secondaryBlue,
+                            child: Icon(
+                              LucideIcons.user,
+                              color: AppColors.primaryBlue,
+                            ),
+                          ),
+                    ),
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name.isEmpty ? 'Tu perfil' : name,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 18,
+                  ),
+                ),
+                Text(profile?.role ?? 'Candidato'),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InlineError extends StatelessWidget {
+  const _InlineError({required this.message});
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    liveRegion: true,
+    child: Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFE4E6),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(message),
+    ),
+  );
+}
+
+class _ErrorState extends StatelessWidget {
+  const _ErrorState({required this.message, required this.onRetry});
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(message, textAlign: TextAlign.center),
+          const SizedBox(height: 12),
+          OutlinedButton(onPressed: onRetry, child: const Text('Reintentar')),
+        ],
+      ),
+    ),
+  );
 }

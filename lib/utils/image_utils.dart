@@ -13,8 +13,8 @@ class ImageUtils {
     if (image == null) return null;
 
     final File file = File(image.path);
-    final String targetPath = (await path_provider.getTemporaryDirectory()).path + 
-        "/temp_${DateTime.now().millisecondsSinceEpoch}.jpg";
+    final String targetPath =
+        '${(await path_provider.getTemporaryDirectory()).path}/temp_${DateTime.now().millisecondsSinceEpoch}.jpg';
 
     // Compress image to ~300kb or less
     final XFile? compressedFile = await FlutterImageCompress.compressAndGetFile(

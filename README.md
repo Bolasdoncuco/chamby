@@ -1,16 +1,10 @@
-# chamby_app
+# Chamby
 
-A new Flutter project.
+La documentación final del MVP se encuentra en [`../docs/README.md`](../docs/README.md).
 
-## Getting Started
+- [Arquitectura](../docs/architecture.md)
+- [API y contrato](../docs/api.md)
+- [Alcance](../docs/mvp-scope.md)
+- [Checklist QA manual](../docs/qa-manual.md)
 
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+Para ejecutar la app: configura `API_URL` en `.env`, ejecuta `flutter pub get` y después `flutter run`. La API relacionada vive en `../chamby_backend`. No incluyas secretos reales en el repositorio.

@@ -1,12 +1,14 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/api_service.dart';
+import '../../widgets/common/app_state_view.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({super.key, this.loadProfile = true});
+
+  final bool loadProfile;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -19,7 +21,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
-    _loadProfile();
+    if (widget.loadProfile) {
+      _loadProfile();
+    } else {
+      _isLoading = false;
+    }
   }
 
   Future<void> _loadProfile() async {
@@ -30,7 +36,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final response = await ApiService.get(endpoint);
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
+        final data = response.data;
         if (mounted) {
           setState(() {
             _profileData = data['profile'];
@@ -73,6 +79,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Row(
               children: [
                 IconButton(
+                  tooltip: isEmployer ? 'Regresar al dashboard' : 'Regresar a vacantes',
                    // Flutter back arrow is typically not mirrored, but we match the React icon
                   icon: const Icon(LucideIcons.chevronLeft, color: Colors.grey, size: 28),
                   onPressed: () => authProvider.setCurrentView(isEmployer ? CurrentView.dashboard : CurrentView.feed),
@@ -99,7 +106,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         borderRadius: BorderRadius.circular(24),
                         border: Border.all(color: Colors.grey[100]!),
                       ),
-                      child: const Center(child: CircularProgressIndicator()),
+                      child: const AppStateView.loading(),
                     )
                   else
                     Container(
@@ -109,7 +116,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(24),
                         border: Border.all(color: Colors.grey[100]!),
-                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 4, offset: const Offset(0, 2))],
+                        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 4, offset: const Offset(0, 2))],
                       ),
                       child: Row(
                         children: [
@@ -139,7 +146,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _SettingsSection(
                     title: 'Cuenta',
                     items: [
-                      _SettingsItem(id: 'profile', label: 'Editar Perfil', icon: LucideIcons.user, action: () => authProvider.setCurrentView(CurrentView.profile)), // Route to profile on edit for now
+                      _SettingsItem(id: 'profile', label: 'Editar perfil', icon: LucideIcons.user, action: () => authProvider.setCurrentView(isEmployer ? CurrentView.dashboard : CurrentView.profile)),
                       _SettingsItem(id: 'notifications', label: 'Notificaciones', icon: LucideIcons.bell),
                       _SettingsItem(id: 'privacy', label: 'Privacidad y Seguridad', icon: LucideIcons.shield),
                     ],
@@ -166,7 +173,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton.icon(
-                      onPressed: () => authProvider.handleLogout(),
+                      onPressed: () => _confirmLogout(context, authProvider),
                       icon: const Icon(LucideIcons.logOut, size: 20),
                       label: const Text('Cerrar Sesión', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                       style: ElevatedButton.styleFrom(
@@ -186,6 +193,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
   }
+}
+
+Future<void> _confirmLogout(BuildContext context, AuthProvider authProvider) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('¿Cerrar sesión?'),
+      content: const Text('Se borrará la sesión de este dispositivo.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+        FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Cerrar sesión')),
+      ],
+    ),
+  );
+  if (confirmed == true && context.mounted) await authProvider.handleLogout();
 }
 
 class _SettingsItem {
@@ -223,7 +245,7 @@ class _SettingsSection extends StatelessWidget {
             color: Colors.white,
             borderRadius: BorderRadius.circular(24),
             border: Border.all(color: Colors.grey[100]!),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 4, offset: const Offset(0, 2))],
+            boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 4, offset: const Offset(0, 2))],
           ),
           clipBehavior: Clip.antiAlias,
           child: Column(

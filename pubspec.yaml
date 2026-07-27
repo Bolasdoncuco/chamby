@@ -44,6 +44,9 @@ dependencies:
   flutter_image_compress: ^2.4.0
   image_picker: ^1.2.1
   path_provider: ^2.1.5
+  dio: ^5.9.2
+  flutter_dotenv: ^6.0.1
+  fancy_shimmer_image: ^2.0.3
 
 dev_dependencies:
   flutter_test:
@@ -68,7 +71,8 @@ flutter:
   uses-material-design: true
 
   # To add assets to your application, add an assets section, like this:
-  # assets:
+  assets:
+    - .env
   fonts:
     - family: Satoshi
       fonts:

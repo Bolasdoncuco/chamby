@@ -1,20 +1,50 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:google_fonts/google_fonts.dart';
+
 import 'providers/auth_provider.dart';
+import 'providers/job_creation_provider.dart';
+import 'providers/employer_provider.dart';
+import 'services/api_service.dart';
+import 'services/employer_service.dart';
 import 'screens/auth/welcome_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/signup_screen.dart';
 import 'screens/app_shell.dart';
-import 'package:google_fonts/google_fonts.dart';
-void main() {
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await configureApiEnvironment();
+
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(create: (_) => JobCreationProvider()),
+        ChangeNotifierProvider(create: (_) => EmployerVacancyFormProvider(ApiEmployerGateway(ApiService.client))),
       ],
       child: const ChambyApp(),
     ),
   );
+}
+
+Future<void> configureApiEnvironment({
+  bool? isProduction,
+  Future<void> Function()? environmentLoader,
+  String? apiUrlOverride,
+}) async {
+  final production = isProduction ?? kReleaseMode;
+  try {
+    await (environmentLoader ?? () => dotenv.load(fileName: '.env'))();
+  } catch (_) {
+    if (production) {
+      throw StateError('API_URL es obligatoria en producción. No se pudo cargar la configuración.');
+    }
+  }
+  final configuredApiUrl = apiUrlOverride ?? (dotenv.isInitialized ? dotenv.env['API_URL'] : null);
+  ApiService.configure(apiUrl: configuredApiUrl, isProduction: production);
 }
 
 class ChambyApp extends StatelessWidget {

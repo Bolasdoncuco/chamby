@@ -1,438 +1,316 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_card_swiper/flutter_card_swiper.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:provider/provider.dart';
-import 'dart:convert';
+
+import '../../models/vacancy.dart';
 import '../../providers/auth_provider.dart';
-import '../../services/api_service.dart';
-
-final List<Map<String, dynamic>> mockCandidates = [
-  {
-    'id': 1,
-    'name': 'Alex, 22',
-    'role': 'Barista / Cajero',
-    'experience': '2 años',
-    'location': 'Centro',
-    'availability': 'Tiempo completo',
-    'tags': ['Dinámico', 'Arte Latte', 'Sistemas POS'],
-    'videoPlaceholder': 'https://picsum.photos/seed/alex/400/600',
-    'bio': 'Barista energético buscando un ambiente de café concurrido. ¡Prospero bajo presión!',
-    'suggestedJob': 'Barista Principal',
-  },
-  {
-    'id': 2,
-    'name': 'Sarah, 25',
-    'role': 'Asesora de Ventas',
-    'experience': '3 años',
-    'location': 'Zona Norte',
-    'availability': 'Medio tiempo',
-    'tags': ['Servicio al Cliente', 'Visual Merchandising', 'Bilingüe'],
-    'videoPlaceholder': 'https://picsum.photos/seed/sarah/400/600',
-    'bio': 'Asesora de ventas amable y accesible con facilidad para las ventas.',
-    'suggestedJob': 'Vendedor de Tienda',
-  },
-  {
-    'id': 3,
-    'name': 'Mike, 20',
-    'role': 'Mesero / Server',
-    'experience': '1 año',
-    'location': 'Distrito Gastronómico',
-    'availability': 'Flexible',
-    'tags': ['Trabajo en Equipo', 'Alto Volumen', 'Seguridad Alimentaria'],
-    'videoPlaceholder': 'https://picsum.photos/seed/mike/400/600',
-    'bio': 'Rápido y siempre sonriente. Listo para unirme a un equipo dinámico.',
-    'suggestedJob': 'Ayudante de Cocina',
-  }
-];
-
-final List<Map<String, dynamic>> mockJobs = [
-  {
-    'id': 101,
-    'name': 'Café Central',
-    'role': 'Barista Principal',
-    'experience': '1+ año',
-    'location': 'Centro Histórico',
-    'availability': 'Mañana/Tarde',
-    'tags': ['Sueldo Base + Propinas', 'Seguro Médico', 'Capacitación'],
-    'videoPlaceholder': 'https://picsum.photos/seed/cafe/400/600',
-    'bio': 'Buscamos un barista apasionado para unirse a nuestra familia. Ambiente vibrante y el mejor café de la ciudad.'
-  },
-  {
-    'id': 102,
-    'name': 'Moda Urbana',
-    'role': 'Vendedor de Tienda',
-    'experience': 'Sin experiencia',
-    'location': 'Centro Comercial',
-    'availability': 'Fines de semana',
-    'tags': ['Comisiones', 'Descuento Empleado', 'Crecimiento'],
-    'videoPlaceholder': 'https://picsum.photos/seed/fashion/400/600',
-    'bio': '¿Te apasiona la moda? Únete a nuestro equipo de ventas. Buscamos gente con actitud y ganas de aprender.'
-  },
-  {
-    'id': 103,
-    'name': 'Restaurante El Faro',
-    'role': 'Ayudante de Cocina',
-    'experience': '6 meses',
-    'location': 'Puerto Madero',
-    'availability': 'Turno Noche',
-    'tags': ['Comida incluida', 'Transporte', 'Bonos'],
-    'videoPlaceholder': 'https://picsum.photos/seed/kitchen/400/600',
-    'bio': 'Equipo de cocina profesional busca ayudante comprometido. Oportunidad de aprender de los mejores chefs.'
-  }
-];
+import '../../providers/candidate_feed_provider.dart';
+import '../../services/candidate_service.dart';
+import '../../theme/app_colors.dart';
+import '../../widgets/common/app_state_view.dart';
 
 class SwipeFeedScreen extends StatefulWidget {
-  const SwipeFeedScreen({super.key});
+  const SwipeFeedScreen({super.key, CandidateGateway? gateway})
+    : _gateway = gateway;
+
+  final CandidateGateway? _gateway;
 
   @override
   State<SwipeFeedScreen> createState() => _SwipeFeedScreenState();
 }
 
 class _SwipeFeedScreenState extends State<SwipeFeedScreen> {
-  final CardSwiperController controller = CardSwiperController();
-  List<Map<String, dynamic>> _cards = [];
-  bool _isLoading = true;
+  late final CandidateFeedProvider _feed;
 
   @override
   void initState() {
     super.initState();
-    // Delay setting cards so we can read context
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _initCards();
-    });
-  }
-
-  void _initCards() async {
-    final authProvider = context.read<AuthProvider>();
-    final isEmployer = authProvider.userRole == UserRole.employer;
-    
-    try {
-      final endpoint = isEmployer 
-        ? '/employers/feed/${authProvider.selectedVacancy?['id']}' // If employer, needs a vacancyId
-        : '/candidates/feed';
-      
-      final response = await ApiService.get(endpoint);
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        setState(() {
-          _cards = List<Map<String, dynamic>>.from(data['feed']);
-          _isLoading = false;
-        });
-      } else {
-        if (mounted) setState(() => _isLoading = false);
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error cargando feed: $e')),
-        );
-      }
-    }
-  }
-
-  bool _onSwipe(int previousIndex, int? currentIndex, CardSwiperDirection direction) {
-    if (direction == CardSwiperDirection.right || direction == CardSwiperDirection.left) {
-       final item = _cards[previousIndex];
-       final authProvider = context.read<AuthProvider>();
-       final isEmployer = authProvider.userRole == UserRole.employer;
-       final isLike = direction == CardSwiperDirection.right;
-
-       // Send to backend
-       final endpoint = isEmployer ? '/employers/swipe' : '/candidates/swipe';
-       ApiService.post(endpoint, {
-         if (isEmployer) 'candidateId': item['id'],
-         if (isEmployer) 'vacancyId': authProvider.selectedVacancy?['id'],
-         if (!isEmployer) 'vacancyId': item['id'],
-         'isLike': isLike,
-       }).then((response) {
-          if (response.statusCode == 200) {
-            final data = jsonDecode(response.body);
-            if (data['isMatch'] == true) {
-              // Show Match if candidate
-              if (!isEmployer) {
-                authProvider.setMatchedUser(item);
-              }
-            }
-          }
-       });
-
-       if (isEmployer && isLike) {
-         ScaffoldMessenger.of(context).showSnackBar(
-           SnackBar(
-             content: Row(
-               children: [
-                 const Icon(LucideIcons.checkCircle2, color: Colors.white),
-                 const SizedBox(width: 12),
-                 const Expanded(child: Text('¡Candidato seleccionado! Le avisaremos si hay Match mutuo.', style: TextStyle(fontWeight: FontWeight.bold))),
-               ],
-             ),
-             backgroundColor: const Color(0xFF2563EB), // blue-600
-             behavior: SnackBarBehavior.floating,
-             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-             margin: EdgeInsets.only(
-               bottom: MediaQuery.of(context).size.height - 160,
-               left: 16,
-               right: 16,
-             ),
-             duration: const Duration(seconds: 2),
-           ),
-         );
-       }
-    }
-    return true;
+    _feed = CandidateFeedProvider(widget._gateway ?? ApiCandidateGateway())
+      ..load();
   }
 
   @override
   void dispose() {
-    controller.dispose();
+    _feed.dispose();
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    if (_isLoading) return const Center(child: CircularProgressIndicator());
-    if (_cards.isEmpty) return const Center(child: Text('No hay candidatos/vacantes disponibles en este momento.', style: TextStyle(color: Colors.grey, fontSize: 16), textAlign: TextAlign.center));
-
-    final authProvider = context.watch<AuthProvider>();
-    final isEmployer = authProvider.userRole == UserRole.employer;
-
-    return Container(
-      color: Colors.grey[50], // slate-50
-      padding: const EdgeInsets.all(16.0),
-      child: CardSwiper(
-        controller: controller,
-        cardsCount: _cards.length,
-        onSwipe: _onSwipe,
-        padding: EdgeInsets.zero,
-        numberOfCardsDisplayed: 2, // Match the visual depth
-        backCardOffset: const Offset(0, 20),
-        cardBuilder: (context, index, horizontalThresholdPercentage, verticalThresholdPercentage) {
-           return _CardView(item: _cards[index], isEmployer: isEmployer, controller: controller);
-        },
-        // Custom empty builder
-        onEnd: () {
-          // You could return a Widget here in a newer version or wrap CardSwiper if it doesn't support emptyBuilder directly well.
-          // Since CardSwiper usually disappears when empty, we rely on state if needed.
-        },
-      ),
-    );
+  Future<void> _decide(bool isLike) async {
+    final vacancy = _feed.currentVacancy;
+    final match = await _feed.decideCurrent(isLike: isLike);
+    if (!mounted || match == null) return;
+    if (match.isMatch && vacancy != null) {
+      context.read<AuthProvider>().setMatchedUser(vacancy);
+    }
   }
+
+  @override
+  Widget build(BuildContext context) => ChangeNotifierProvider.value(
+    value: _feed,
+    child: Consumer<CandidateFeedProvider>(
+      builder: (context, feed, _) => switch (feed.state) {
+        CandidateFeedState.loading => const AppStateView.loading(),
+        CandidateFeedState.error => AppStateView.error(
+          message: feed.errorMessage ?? 'No fue posible cargar las vacantes.',
+          onRetry: feed.load,
+        ),
+        CandidateFeedState.empty => _FeedMessage(
+          message: 'No hay vacantes nuevas por ahora. Vuelve más tarde.',
+          onRetry: feed.load,
+        ),
+        CandidateFeedState.ready => _FeedContent(
+          vacancy: feed.currentVacancy!,
+          isSubmitting: feed.isSubmitting,
+          errorMessage: feed.errorMessage,
+          onDecision: _decide,
+        ),
+      },
+    ),
+  );
 }
 
-class _CardView extends StatelessWidget {
-  final Map<String, dynamic> item;
-  final bool isEmployer;
-  final CardSwiperController controller;
+class _FeedContent extends StatelessWidget {
+  const _FeedContent({
+    required this.vacancy,
+    required this.isSubmitting,
+    required this.onDecision,
+    this.errorMessage,
+  });
 
-  const _CardView({required this.item, required this.isEmployer, required this.controller});
+  final Vacancy vacancy;
+  final bool isSubmitting;
+  final String? errorMessage;
+  final ValueChanged<bool> onDecision;
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    child: ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        const Text(
+          'Vacantes para ti',
+          style: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.w700,
+            color: AppColors.slate900,
+          ),
+        ),
+        const SizedBox(height: 4),
+        const Text('Descarta o indica que te interesa una vacante.'),
+        const SizedBox(height: 20),
+        _VacancyCard(vacancy: vacancy),
+        if (errorMessage != null) ...[
+          const SizedBox(height: 12),
+          _DecisionError(message: errorMessage!),
+        ],
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: Semantics(
+                button: true,
+                label:
+                    'Descartar vacante ${vacancy.title ?? vacancy.role ?? 'sin título'}',
+                child: OutlinedButton.icon(
+                  onPressed: isSubmitting ? null : () => onDecision(false),
+                  icon: const Icon(LucideIcons.x),
+                  label: const Text('Descartar'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(52),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Semantics(
+                button: true,
+                label:
+                    'Me interesa vacante ${vacancy.title ?? vacancy.role ?? 'sin título'}',
+                child: FilledButton.icon(
+                  onPressed: isSubmitting ? null : () => onDecision(true),
+                  icon: isSubmitting
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(LucideIcons.heart),
+                  label: Text(isSubmitting ? 'Enviando…' : 'Me interesa'),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(52),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    ),
+  );
+}
+
+class _VacancyCard extends StatelessWidget {
+  const _VacancyCard({required this.vacancy});
+  final Vacancy vacancy;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(32),
-        border: Border.all(color: Colors.grey[100]!),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 20,
-            offset: const Offset(0, 10),
-          )
-        ]
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        children: [
-          // Top Image/Video Section
-          Expanded(
-            flex: 6,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                item['photoData'] != null 
-                  ? (item['photoData'].toString().startsWith('http')
-                      ? Image.network(
-                          item['photoData'],
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey[300]),
-                        )
-                      : Image.memory(
-                          base64Decode(item['photoData'].toString().replaceAll(RegExp(r'data:image/[^;]+;base64,'), '')),
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey[300]),
-                        ))
-                  : Image.network(
-                      item['videoPlaceholder'] ?? 'https://picsum.photos/400/600',
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey[300]),
-                    ),
-                Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.bottomCenter,
-                      end: Alignment.topCenter,
-                      colors: [
-                        Colors.black.withOpacity(0.9),
-                        Colors.black.withOpacity(0.2),
-                        Colors.transparent,
-                      ],
-                      stops: const [0.0, 0.5, 1.0],
-                    )
-                  ),
-                ),
-                Positioned(
-                  bottom: 24, left: 24, right: 24,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text(item['name'], style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white)),
-                          const SizedBox(width: 8),
-                          Container(width: 8, height: 8, decoration: const BoxDecoration(color: Color(0xFF34D399), shape: BoxShape.circle)), // emerald-400
-                        ],
-                      ),
-                      Text(item['role'], style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.blue[100])),
-                      if (isEmployer && item['suggestedJob'] != null) ...[
-                        const SizedBox(height: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF2563EB).withOpacity(0.9), // blue-600
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.white.withOpacity(0.2)),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(LucideIcons.sparkles, color: Colors.yellow, size: 14),
-                              const SizedBox(width: 4),
-                              Text('Opción Ideal: ${item['suggestedJob']}', style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-                 Positioned(
-                  top: 16, right: 16,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: Colors.white.withOpacity(0.3)),
-                    ),
-                    child: Text(
-                      isEmployer ? 'PITCH 15S' : 'VACANTE',
-                      style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1.5),
-                    ),
-                  ),
-                )
-              ],
+    final imageUrl = vacancy.images.isNotEmpty
+        ? vacancy.images.first
+        : vacancy.photoUrl;
+    final title = vacancy.title ?? vacancy.role ?? 'Vacante disponible';
+    final company = vacancy.name ?? vacancy.employer?.companyName ?? 'Empresa';
+    final tags = vacancy.tags.isNotEmpty ? vacancy.tags : vacancy.requirements;
+    return Semantics(
+      label: 'Vacante $title en $company',
+      child: Container(
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppColors.border),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x110F172A),
+              blurRadius: 16,
+              offset: Offset(0, 6),
             ),
-          ),
-          
-          // Bottom Details Section
-          Expanded(
-            flex: 4,
-            child: Container(
-              color: Colors.white,
-              padding: const EdgeInsets.all(24.0),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              height: 190,
+              width: double.infinity,
+              child: imageUrl == null || imageUrl.isEmpty
+                  ? const ColoredBox(
+                      color: AppColors.secondaryBlue,
+                      child: Center(
+                        child: Icon(
+                          LucideIcons.briefcase,
+                          size: 56,
+                          color: AppColors.primaryBlue,
+                        ),
+                      ),
+                    )
+                  : Image.network(
+                      imageUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) =>
+                          const ColoredBox(
+                            color: AppColors.secondaryBlue,
+                            child: Center(
+                              child: Icon(
+                                LucideIcons.imageOff,
+                                size: 48,
+                                color: AppColors.primaryBlue,
+                              ),
+                            ),
+                          ),
+                    ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Tags
-                   Wrap(
-                    spacing: 8, runSpacing: 8,
-                    children: ((item['tags'] ?? item['skills'] ?? []) as List).map((tag) => Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFEFF6FF), // blue-50
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(tag.toString(), style: const TextStyle(color: Color(0xFF1D4ED8), fontSize: 11, fontWeight: FontWeight.bold, letterSpacing: 0.5)), // blue-700
-                    )).toList(),
+                  Text(
+                    company,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.primaryBlue,
+                    ),
                   ),
-                  const SizedBox(height: 16),
-                  
-                  // Location & Availability
-                  Row(
-                    children: [
-                       const Icon(LucideIcons.mapPin, size: 16, color: Colors.grey),
-                      const SizedBox(width: 8),
-                      Text(item['location'] ?? 'Ubicación no especificada', style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.bold)),
-                    ],
+                  const SizedBox(height: 4),
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.slate900,
+                    ),
                   ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      const Icon(LucideIcons.clock, size: 16, color: Colors.grey),
-                      const SizedBox(width: 8),
-                      Text(item['availability'] ?? 'Tiempo Completo', style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                  
-                  const Spacer(),
-                  
-                  // Action Buttons
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _ActionButton(
-                        icon: LucideIcons.x,
-                        color: Colors.grey[400]!,
-                        backgroundColor: Colors.white,
-                        borderColor: Colors.grey[200],
-                        onTap: () => controller.swipe(CardSwiperDirection.left),
-                      ),
-                      const SizedBox(width: 32),
-                      _ActionButton(
-                        icon: LucideIcons.heart,
-                        color: Colors.white,
-                        backgroundColor: const Color(0xFF2563EB), // blue-600
-                        onTap: () => controller.swipe(CardSwiperDirection.right),
-                      ),
-                    ],
-                  )
+                  if (vacancy.location != null ||
+                      vacancy.availability != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      [
+                        vacancy.location,
+                        vacancy.availability,
+                      ].whereType<String>().join(' · '),
+                    ),
+                  ],
+                  if (vacancy.description != null &&
+                      vacancy.description!.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      vacancy.description!,
+                      maxLines: 4,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                  if (tags.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: tags
+                          .map((tag) => Chip(label: Text(tag)))
+                          .toList(growable: false),
+                    ),
+                  ],
                 ],
               ),
             ),
-          )
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
-class _ActionButton extends StatelessWidget {
-  final IconData icon;
-  final Color color;
-  final Color backgroundColor;
-  final Color? borderColor;
-  final VoidCallback onTap;
-
-  const _ActionButton({required this.icon, required this.color, required this.backgroundColor, this.borderColor, required this.onTap});
+class _FeedMessage extends StatelessWidget {
+  const _FeedMessage({required this.message, required this.onRetry});
+  final String message;
+  final VoidCallback onRetry;
 
   @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 56, height: 56, // 14 * 4
-        decoration: BoxDecoration(
-          color: backgroundColor,
-          shape: BoxShape.circle,
-          border: borderColor != null ? Border.all(color: borderColor!) : null,
-          boxShadow: [
-             BoxShadow(color: backgroundColor.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 4)),
-          ],
-        ),
-        child: Icon(icon, color: color, size: 28),
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(28),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(LucideIcons.briefcase, size: 44),
+          const SizedBox(height: 12),
+          Text(message, textAlign: TextAlign.center),
+          const SizedBox(height: 16),
+          OutlinedButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(LucideIcons.refreshCw),
+            label: const Text('Reintentar'),
+          ),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
+
+class _DecisionError extends StatelessWidget {
+  const _DecisionError({required this.message});
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    liveRegion: true,
+    child: Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFE4E6),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(message),
+    ),
+  );
 }
